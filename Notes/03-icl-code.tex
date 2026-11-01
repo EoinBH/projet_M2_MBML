@@ -1,0 +1,158 @@
+\section{Model Selection with ICL}
+
+\subsection{Number of free parameters}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Parameters & Count \\
+\midrule
+$\alpha$ (sums to one) & $K-1$ \\
+$\beta$ (sums to one) & $L-1$ \\
+$(\pi_{k\ell},\xi_{k\ell})$ & $2KL$ \\
+\midrule
+Total $\nu$ & $(K-1)+(L-1)+2KL$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{ICL-BIC criterion}
+
+The integrated completed likelihood penalises the complete-data
+log-likelihood. Each parameter is penalised by $\tfrac12\log(\text{effective sample size})$:
+$\alpha$ is learned from $n$ rows, $\beta$ from $d$ columns and each block
+parameter from the $nd$ cells:
+\[
+\boxed{
+\text{ICL}(K,L)
+=
+\log p(\underline{X},\hat z,\hat w;\hat\theta)
+-\frac{K-1}{2}\log n
+-\frac{L-1}{2}\log d
+-\frac{2KL}{2}\log(nd).
+}
+\]
+\hl{The larger the ICL, the better the model.}
+
+\paragraph{Why ICL rather than BIC?}
+BIC would need the observed likelihood (intractable here). ICL uses the
+\emph{complete} likelihood, which we can compute at the estimated
+partitions, and it also favours well-separated clusters.
+
+\paragraph{Remark on the paper.} In the Jacques--Biernacki formula the
+mixing-proportion terms seem to be summed inside the $(i,h)$ sum, which
+would count them $nd$ times; the version above (each term once) is the
+standard one and the one implemented.
+
+\paragraph{Best initialisation.} For fixed $(K,L)$ the penalty is the same
+for all initialisations, so choosing the best run by ICL is equivalent to
+choosing the largest complete log-likelihood.
+
+\section{Walk-through of the Code}
+
+All the code lives in \texttt{R/coclust\_ordinal.R}. Reading order for the
+oral:
+
+\begin{center}
+\begin{tabular}{lp{9cm}}
+\toprule
+Function & Role \\
+\midrule
+\texttt{coclust\_ordinal} & Public entry point: checks inputs, builds the
+indicator matrices $I_r$, loops over \texttt{n\_init}, keeps the best ICL. \\
+\texttt{sem\_gibbs\_once} & One full SEM-Gibbs run: initialisation, SEM
+iterations, averaging, final chain, ICL. \\
+\texttt{initial\_partition} & k-means (or uniform random) starting partition. \\
+\texttt{gibbs\_sweep} & SE step: samples $z$ given $w$, then $w$ given $z$. \\
+\texttt{draw\_categorical} & Gumbel-max sampling from log-scores. \\
+\texttt{fix\_empty} & Repairs empty clusters. \\
+\texttt{m\_step} & Updates $\alpha,\beta$ and calls the CUB EM per block. \\
+\texttt{fit\_cub\_counts} & Inner EM of a single CUB from $m$ counts. \\
+\texttt{log\_cub\_table} & $K\times L\times m$ array of $\log p(r;\pi_{k\ell},\xi_{k\ell})$. \\
+\texttt{block\_counts} & $K\times L\times m$ array $N_{k\ell r}$ via $Z^\top I_rW$. \\
+\texttt{complete\_loglik}, \texttt{icl\_value} & Complete log-likelihood and ICL. \\
+\texttt{coclust\_ordinal\_select} & Grid search over $(K,L)$ by ICL. \\
+\texttt{simulate\_cub\_lbm} & Draws data from the model (tests, vignette). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Key lines, explained}
+
+\paragraph{CUB probability table.}
+\begin{lstlisting}[language=R]
+out[, , r] <- log(pi * choose(m - 1, r - 1) * xi^(m - r) *
+                    (1 - xi)^(r - 1) + (1 - pi) / m)
+\end{lstlisting}
+Direct transcription of the CUB formula, vectorised over all $K\times L$
+blocks at once ($\pi$ and $\xi$ are $K\times L$ matrices).
+
+\paragraph{Block counts.}
+\begin{lstlisting}[language=R]
+N[, , r] <- crossprod(Z, Ilist[[r]] %*% W)
+\end{lstlisting}
+$Z^\top(I_rW)$ is the $K\times L$ matrix whose $(k,\ell)$ entry is
+$N_{k\ell r}$: the number of cells of block $(k,\ell)$ equal to $r$.
+
+\paragraph{Row scores in the Gibbs sweep.}
+\begin{lstlisting}[language=R]
+score <- score + (Ilist[[r]] %*% W) %*% t(matrix(logP[, , r], K, L))
+\end{lstlisting}
+$(I_rW)_{i\ell}$ counts how many cells of row $i$ equal $r$ within column
+cluster $\ell$; multiplying by $\log p(r;\theta_{k\ell})$ and summing over
+$\ell$ and $r$ gives $s_{ik}$.
+
+\paragraph{Sampling.}
+\begin{lstlisting}[language=R]
+g <- -log(-log(stats::runif(length(logscore))))
+max.col(logscore + matrix(g, nrow(logscore)), ties.method = "first")
+\end{lstlisting}
+Gumbel-max trick: $\argmax_k(s_{ik}+G_k)$ with $G_k$ i.i.d. Gumbel has
+distribution $\propto e^{s_{ik}}$.
+
+\paragraph{Inner EM.}
+\begin{lstlisting}[language=R]
+nu <- pi * pb / (pi * pb + (1 - pi) / m)       # E step
+s  <- sum(cnt * nu)
+pi_new <- s / tot                                # M step
+xi_new <- sum(cnt * nu * (m - r)) / ((m - 1) * s)
+\end{lstlisting}
+Exactly the boxed formulas of the CUB section.
+
+\paragraph{ICL.}
+\begin{lstlisting}[language=R]
+loglik - (K - 1) / 2 * log(n) - (L - 1) / 2 * log(d) -
+  K * L * log(n * d)
+\end{lstlisting}
+Note $\tfrac{2KL}{2}\log(nd)=KL\log(nd)$.
+
+\section{Package Workflow}
+
+\begin{enumerate}
+  \item \texttt{devtools::document()}: generates \texttt{man/*.Rd} and
+  \texttt{NAMESPACE} from the roxygen comments (\texttt{\#'}).
+  \item \texttt{devtools::test()}: runs the \texttt{testthat} tests.
+  \item \texttt{devtools::check()} / \texttt{R CMD check}: official
+  package checks (documentation, examples, vignette).
+  \item \texttt{R CMD build .}: produces \texttt{coclustOrdinal\_0.1.0.tar.gz}.
+  \item \texttt{install.packages("...tar.gz", repos = NULL, type = "source")}
+  to install it (this is what the professor will do).
+\end{enumerate}
+
+The package is pure R (no C++), so it installs on any Mac without a compiler.
+
+\section{Likely Oral Questions}
+
+\begin{enumerate}
+  \item What is a CUB distribution and what do $\pi$ and $\xi$ mean?
+  \item Why is EM impossible for the LBM, and what do we do instead?
+  \item Derive the conditional distribution of $z_i$ given $w$.
+  \item Why do we average parameters after burn-in?
+  \item How are $\pi_{k\ell}$ and $\xi_{k\ell}$ updated?
+  \item How many parameters does the model have and why this ICL penalty?
+  \item What happens when a cluster becomes empty, or when $\pi\to0$?
+  \item How do you choose among the random initialisations?
+  \item How are membership probabilities obtained from a stochastic algorithm?
+  \item What is label switching and how do you compare two partitions?
+  \item Why vectorise with indicator matrices instead of looping over cells?
+\end{enumerate}

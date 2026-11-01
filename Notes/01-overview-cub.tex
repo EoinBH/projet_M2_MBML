@@ -1,0 +1,126 @@
+\section{The Project at a Glance}
+
+\subsection{Goal}
+
+We observe an $n\times d$ matrix $\underline{X}=(x_{ih})$ of \hl{ordinal data}:
+each entry is a category $x_{ih}\in\{1,\ldots,m\}$ (for instance a rating
+on a scale from 1 to $m$; rows are individuals, columns are items).
+
+\hl{Co-clustering} simultaneously
+\begin{itemize}
+  \item groups the $n$ rows into $K$ row clusters,
+  \item groups the $d$ columns into $L$ column clusters,
+\end{itemize}
+so that the matrix is summarised by $K\times L$ homogeneous \hl{blocks}.
+
+\paragraph{What we have to deliver.}
+An R package whose main function takes the data, $K$, $L$ and the number
+of random initialisations (20 by default) and returns
+the membership probabilities of rows and columns, the hard assignments,
+the ICL value and the estimated parameters.
+
+\paragraph{The recipe.}
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Ingredient & Choice \\
+\midrule
+Probabilistic model & Latent Block Model (LBM) \\
+Distribution inside a block & CUB (ordinal) \\
+Inference & SEM-Gibbs algorithm \\
+Choice of $(K,L)$ & ICL criterion \\
+Robustness to local optima & several random initialisations \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Why not simply EM?}
+For the LBM the E step requires
+$P(z,w\mid x)$, which does not factorise (rows and columns are
+coupled). It is a sum over $K^nL^d$ configurations: intractable.
+SEM-Gibbs replaces this sum by \hl{simulation}: we sample $(z,w)$ with
+Gibbs sampling instead of computing expectations.
+
+\section{The CUB Distribution}
+
+\subsection{Definition}
+
+For one ordinal variable $R\in\{1,\ldots,m\}$, the CUB model
+(Combination of a Uniform and a shifted Binomial) is the mixture
+\[
+\boxed{
+P(R=r)
+=
+\pi\binom{m-1}{r-1}\xi^{\,m-r}(1-\xi)^{\,r-1}
++(1-\pi)\frac1m,
+\qquad r=1,\ldots,m.
+}
+\]
+
+\paragraph{Interpretation.}
+A respondent either
+\begin{itemize}
+  \item answers \hl{with feeling} (probability $\pi$): the answer follows a
+  shifted binomial $1+\Bin(m-1,1-\xi)$, or
+  \item answers \hl{with uncertainty} (probability $1-\pi$): the answer is
+  uniform over the $m$ categories.
+\end{itemize}
+So $\pi$ is the weight of the feeling component and $\xi$ drives the
+location of the answers: the mean of the binomial part is
+$1+(m-1)(1-\xi)$, hence a \emph{large} $\xi$ means \emph{low} categories.
+
+\paragraph{Check that it is a distribution.}
+The binomial terms sum to one, $\sum_r\binom{m-1}{r-1}\xi^{m-r}(1-\xi)^{r-1}=1$,
+and so do the uniform terms. Hence
+$\sum_rP(R=r)=\pi+(1-\pi)=1$.
+
+\subsection{Latent variable representation}
+
+Introduce $V\sim\text{Bernoulli}(\pi)$ with
+\[
+P(R=r\mid V=1)=b(r;\xi)=\binom{m-1}{r-1}\xi^{m-r}(1-\xi)^{r-1},
+\qquad
+P(R=r\mid V=0)=\frac1m.
+\]
+This turns CUB into a two-component mixture and allows an EM algorithm.
+
+\subsection{Estimation by EM (one CUB, counts $c_r$)}
+
+Let $c_r$ be the number of observations equal to $r$, and $N=\sum_rc_r$.
+
+\paragraph{E step.} Posterior probability of ``feeling'' given $R=r$:
+\[
+\boxed{
+\nu_r
+=
+\frac{\pi\,b(r;\xi)}{\pi\,b(r;\xi)+(1-\pi)/m}.
+}
+\]
+
+\paragraph{M step.} The expected complete log-likelihood is
+\[
+\sum_rc_r\Big[\nu_r\big(\log\pi+\log b(r;\xi)\big)
++(1-\nu_r)\big(\log(1-\pi)-\log m\big)\Big].
+\]
+Maximising in $\pi$:
+\[
+\boxed{\pi=\frac{\sum_rc_r\nu_r}{N}.}
+\]
+In $\xi$, only $\sum_rc_r\nu_r\big[(m-r)\log\xi+(r-1)\log(1-\xi)\big]$
+matters. Setting the derivative to zero and using
+$(m-r)+(r-1)=m-1$:
+\[
+\boxed{\xi=\frac{\sum_rc_r\nu_r(m-r)}{(m-1)\sum_rc_r\nu_r}.}
+\]
+
+\paragraph{Why counts?}
+Only the $m$ numbers $c_r$ matter, not the individual data. This is the key
+efficiency trick of the code: for each block $(k,\ell)$ we tabulate the
+$m$ counts and run this tiny EM on them.
+
+\paragraph{Pitfalls.}
+\begin{itemize}
+  \item If $\pi\to0$, $\xi$ is not identifiable (the data are uniform); the
+  code clamps $\pi$ and $\xi$ to $[10^{-6},1-10^{-6}]$.
+  \item If a block is empty ($N=0$), the parameters are kept unchanged.
+\end{itemize}

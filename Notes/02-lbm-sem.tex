@@ -1,0 +1,178 @@
+\section{The Latent Block Model}
+
+\subsection{Definition}
+
+Latent variables:
+\begin{itemize}
+  \item row labels $z_i\in\{1,\ldots,K\}$, written $z_{ik}=\1\{z_i=k\}$,
+  with $P(z_{ik}=1)=\alpha_k$, $\sum_k\alpha_k=1$;
+  \item column labels $w_h\in\{1,\ldots,L\}$, written $w_{h\ell}=\1\{w_h=\ell\}$,
+  with $P(w_{h\ell}=1)=\beta_\ell$, $\sum_\ell\beta_\ell=1$;
+  \item $z$ and $w$ are independent.
+\end{itemize}
+Given $(z,w)$, the cells are independent and
+\[
+x_{ih}\mid z_{ik}=1,\,w_{h\ell}=1\;\sim\;\text{CUB}(\pi_{k\ell},\xi_{k\ell}).
+\]
+The parameter is $\theta=(\alpha,\beta,\pi_{k\ell},\xi_{k\ell})$.
+
+\subsection{Likelihoods}
+
+\paragraph{Complete-data likelihood.}
+\[
+p(\underline{X},z,w;\theta)
+=
+\prod_{i,k}\alpha_k^{z_{ik}}
+\prod_{h,\ell}\beta_\ell^{w_{h\ell}}
+\prod_{i,h,k,\ell}p(x_{ih};\pi_{k\ell},\xi_{k\ell})^{z_{ik}w_{h\ell}},
+\]
+so that
+\[
+\boxed{
+\log p(\underline{X},z,w;\theta)
+=
+\sum_{i,k}z_{ik}\log\alpha_k
++\sum_{h,\ell}w_{h\ell}\log\beta_\ell
++\sum_{i,h,k,\ell}z_{ik}w_{h\ell}\log p(x_{ih};\pi_{k\ell},\xi_{k\ell}).
+}
+\]
+
+\paragraph{Observed-data likelihood.}
+\[
+p(\underline{X};\theta)=\sum_{z\in\{1..K\}^n}\sum_{w\in\{1..L\}^d}
+p(\underline{X},z,w;\theta),
+\]
+a sum of $K^nL^d$ terms: impossible to compute directly.
+
+\paragraph{Why EM fails.}
+The E step needs $p(z,w\mid\underline{X})$ or at least the expectation of
+$z_{ik}w_{h\ell}$. Because $z$ and $w$ appear \emph{together} in the product
+above, the posterior does not factorise over rows and columns. A
+variational approximation (VEM) is one remedy; the project uses
+simulation instead.
+
+\subsection{Counts per block}
+
+For a given pair of partitions $(z,w)$ define
+\[
+N_{k\ell r}=\sum_{i,h}z_{ik}w_{h\ell}\,\1\{x_{ih}=r\},
+\qquad
+n_k=\sum_iz_{ik},
+\qquad
+d_\ell=\sum_hw_{h\ell}.
+\]
+Then the complete log-likelihood becomes
+\[
+\boxed{
+\sum_kn_k\log\alpha_k+\sum_\ell d_\ell\log\beta_\ell
++\sum_{k,\ell,r}N_{k\ell r}\log p(r;\pi_{k\ell},\xi_{k\ell}).
+}
+\]
+This is exactly what \texttt{complete\_loglik()} computes in the code.
+
+\section{The SEM-Gibbs Algorithm}
+
+\subsection{Principle}
+
+SEM = Stochastic EM. At every iteration
+\begin{enumerate}
+  \item \textbf{SE step}: instead of computing expectations of the latent
+  variables, \hl{simulate} them from (an approximation of) their posterior,
+  here with Gibbs sampling;
+  \item \textbf{M step}: maximise the complete-data likelihood at the
+  simulated $(z,w)$.
+\end{enumerate}
+Because the latent variables are random, the parameter sequence is
+\emph{not} converging to a point: it forms a Markov chain around a
+good region. We therefore discard a \hl{burn-in} and \hl{average} the
+parameters afterwards.
+
+\subsection{SE step: the Gibbs conditionals}
+
+\paragraph{Rows given columns.}
+From the complete likelihood, keeping only the terms with $z_i$:
+\[
+P(z_{ik}=1\mid\underline{X},w;\theta)
+\;\propto\;
+\alpha_k\prod_{h=1}^d\prod_{\ell=1}^L
+p(x_{ih};\pi_{k\ell},\xi_{k\ell})^{w_{h\ell}}.
+\]
+Hence $z_i\sim\mathcal{M}(1,\tilde z_{i1},\ldots,\tilde z_{iK})$ with
+$\tilde z_{ik}$ the normalised right-hand side. Rows are independent given
+$w$.
+
+\paragraph{Columns given rows.} By symmetry,
+\[
+P(w_{h\ell}=1\mid\underline{X},z;\theta)
+\;\propto\;
+\beta_\ell\prod_{i=1}^n\prod_{k=1}^K
+p(x_{ih};\pi_{k\ell},\xi_{k\ell})^{z_{ik}}.
+\]
+
+\paragraph{Log-space.} Products of many small probabilities underflow, so
+the code works with scores
+\[
+s_{ik}=\log\alpha_k+\sum_{\ell,r}\Big(\sum_hw_{h\ell}\1\{x_{ih}=r\}\Big)
+\log p(r;\pi_{k\ell},\xi_{k\ell}),
+\]
+and samples a category with probabilities $\propto e^{s_{ik}}$
+(Gumbel-max trick: add independent Gumbel noise to $s_{ik}$ and take the
+argmax; this gives exact categorical samples without normalising).
+
+\paragraph{Matrix form (efficiency).}
+Let $I_r=(\1\{x_{ih}=r\})_{ih}$ be the $r$-th indicator matrix, $W=(w_{h\ell})$
+and $Z=(z_{ik})$. Then
+\[
+S^{\text{row}}=\log\alpha^\top\text{(repeated)}
++\sum_{r=1}^m(I_rW)\,\big(\log P_{\cdot\cdot r}\big)^\top,
+\qquad
+S^{\text{col}}=\log\beta^\top\text{(repeated)}
++\sum_{r=1}^m(I_r^\top Z)\,\log P_{\cdot\cdot r},
+\]
+where $\log P_{\cdot\cdot r}$ is the $K\times L$ matrix of
+$\log p(r;\pi_{k\ell},\xi_{k\ell})$. No loop over cells is needed.
+
+\subsection{M step}
+
+Given the current $(z,w)$:
+\[
+\alpha_k=\frac{n_k}{n},\qquad\beta_\ell=\frac{d_\ell}{d},
+\]
+and $(\pi_{k\ell},\xi_{k\ell})$ are obtained, block by block, by the inner
+CUB EM of the previous section on the counts $(N_{k\ell r})_r$ (warm start
+from the previous values).
+
+\subsection{Full algorithm}
+
+\begin{enumerate}
+  \item \textbf{Initialisation.} Row partition by k-means on the rows,
+  column partition by k-means on the columns, random initial $(\pi,\xi)$,
+  then one M step.
+  \item \textbf{For $t=1,\ldots,T$} (default $T=100$):
+  \begin{enumerate}
+    \item SE: \texttt{n\_gibbs} sweeps (rows then columns).
+    \item M: update $\alpha,\beta,\pi,\xi$.
+    \item If $t>T_{\text{burn}}$ (default 40), accumulate the parameters.
+  \end{enumerate}
+  \item \textbf{Estimate} $\hat\theta$ = average of the accumulated parameters.
+  \item \textbf{Final chain.} Run Gibbs again with $\hat\theta$ fixed for
+  $T$ iterations; after burn-in, the \hl{frequency} with which each row
+  (column) was in each cluster gives the \hl{membership probabilities};
+  the \hl{mode} gives the final partition $(\hat z,\hat w)$.
+  \item \textbf{ICL} at $(\hat z,\hat w,\hat\theta)$.
+  \item Repeat from step 1 \texttt{n\_init} times and keep the run with
+  the highest ICL.
+\end{enumerate}
+
+\paragraph{Remarks to be ready for the oral.}
+\begin{itemize}
+  \item Why several initialisations? SEM is random and the likelihood has
+  many local optima.
+  \item Why average parameters after burn-in? The chain does not converge to a
+  point; the average is a stable estimate.
+  \item Label switching: cluster numbers can be permuted between runs, so
+  compare partitions with an invariant measure such as the Adjusted Rand Index.
+  \item Empty clusters: the code moves a random member of the biggest cluster
+  to any empty one, otherwise $\log\alpha_k=-\infty$ and the algorithm
+  degenerates.
+\end{itemize}

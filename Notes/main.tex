@@ -1,0 +1,41 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{soul}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\hypersetup{colorlinks=false, linkcolor=cyan, urlcolor=cyan, linktoc=all}
+\lstset{
+  basicstyle=\scriptsize\ttfamily,
+  frame=single,
+  breaklines=true,
+  showstringspaces=false,
+  numbers=left,
+  numberstyle=\tiny,
+  numbersep=8pt,
+  keywordstyle=\bfseries
+}
+\newcommand{\1}{\mathbb{1}}
+\newcommand{\Bin}{\mathcal{B}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+\title{Co-clustering of Ordinal Data: CUB Latent Block Model\\
+\large Study notes for the project and the oral}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\include{01-overview-cub}
+\include{02-lbm-sem}
+\include{03-icl-code}
+
+\end{document}
