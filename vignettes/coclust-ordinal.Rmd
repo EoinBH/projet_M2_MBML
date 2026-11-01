@@ -1,0 +1,49 @@
+---
+title: "Co-clustering ordinal data with coclustOrdinal"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Co-clustering ordinal data with coclustOrdinal}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+library(coclustOrdinal)
+```
+
+## Model
+
+(TODO) CUB distribution, latent block model, SEM-Gibbs, ICL.
+
+## Simulated data
+
+```{r simulate}
+sim <- simulate_cub_lbm(n = 80, d = 40, m = 5, seed = 1)
+dim(sim$X)
+```
+
+## Fitting the model
+
+```{r fit}
+fit <- coclust_ordinal(sim$X, K = 2, L = 2, n_init = 5,
+                       n_iter = 50, burn_in = 20, seed = 1)
+summary(fit)
+```
+
+```{r compare}
+table(estimated = fit$row_clusters, true = sim$z)
+table(estimated = fit$col_clusters, true = sim$w)
+```
+
+## Choosing the number of blocks with ICL
+
+```{r select}
+sel <- coclust_ordinal_select(sim$X, K_range = 1:3, L_range = 1:3,
+                              n_init = 3, n_iter = 40, burn_in = 15, seed = 1)
+sel$table
+```
+
+## Real data
+
+(TODO) Example on a real ordinal data set.

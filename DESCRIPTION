@@ -1,0 +1,19 @@
+Package: coclustOrdinal
+Type: Package
+Title: Co-Clustering of Ordinal Data with a CUB Latent Block Model
+Version: 0.1.0
+Authors@R: person("Eoin", "BRERETON HURLEY", email = "eoinwbh@gmail.com", role = c("aut", "cre"))
+Description: Model-based co-clustering of ordinal data matrices. Rows and
+    columns are simultaneously partitioned with a latent block model whose
+    blocks follow a CUB (Combination of Uniform and shifted Binomial)
+    distribution. Parameters are estimated with a SEM-Gibbs algorithm with
+    multiple random initializations, and the ICL criterion is used to compare
+    numbers of row and column clusters.
+License: GPL (>= 3)
+Encoding: UTF-8
+Depends: R (>= 3.5.0)
+Imports: stats
+Suggests: testthat (>= 3.0.0), knitr, rmarkdown, mclust
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+RoxygenNote: 7.3.2
