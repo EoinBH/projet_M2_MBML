@@ -16,4 +16,4 @@ Imports: stats
 Suggests: testthat (>= 3.0.0), knitr, rmarkdown, mclust
 VignetteBuilder: knitr
 Config/testthat/edition: 3
-RoxygenNote: 7.3.2
+Config/roxygen2/version: 8.1.1
