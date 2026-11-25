@@ -7,19 +7,19 @@
 coclust_ordinal_select(X, K_range = 1:4, L_range = 1:4, ...)
 }
 \arguments{
-\item{X}{Ordinal data matrix, see [coclust_ordinal()].}
+\item{X}{Ordinal data matrix, see \code{\link[=coclust_ordinal]{coclust_ordinal()}}.}
 
 \item{K_range, L_range}{Integer vectors of candidate numbers of clusters.}
 
-\item{...}{Further arguments passed to [coclust_ordinal()]
-(e.g. `n_init`, `n_iter`, `burn_in`, `seed`).}
+\item{...}{Further arguments passed to \code{\link[=coclust_ordinal]{coclust_ordinal()}}
+(e.g. \code{n_init}, \code{n_iter}, \code{burn_in}, \code{seed}).}
 }
 \value{
-A list with `table` (data frame with columns `K`, `L`, `icl`),
-  `best` (the best `"coclust_ordinal"` fit) and `fits` (all fits).
+A list with \code{table} (data frame with columns \code{K}, \code{L}, \code{icl}),
+\code{best} (the best \code{"coclust_ordinal"} fit) and \code{fits} (all fits).
 }
 \description{
-Fits [coclust_ordinal()] on every pair `(K, L)` of the grid and keeps the
+Fits \code{\link[=coclust_ordinal]{coclust_ordinal()}} on every pair \verb{(K, L)} of the grid and keeps the
 pair with the largest ICL.
 }
 \examples{

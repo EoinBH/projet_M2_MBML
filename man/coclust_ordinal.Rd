@@ -20,7 +20,7 @@ coclust_ordinal(
 }
 \arguments{
 \item{X}{Matrix or data frame (n rows, d columns) of ordinal data coded
-with integers `1, ..., m`. No missing values.}
+with integers \verb{1, ..., m}. No missing values.}
 
 \item{K}{Number of row clusters.}
 
@@ -34,55 +34,57 @@ with integers `1, ..., m`. No missing values.}
 
 \item{n_gibbs}{Number of Gibbs sweeps per SE step (default 1).}
 
-\item{m}{Number of ordinal categories. Default: `max(X)`.}
+\item{m}{Number of ordinal categories. Default: \code{max(X)}.}
 
-\item{init}{Initialization of the partitions: `"kmeans"` (random k-means,
-default) or `"random"` (uniform draws).}
+\item{init}{Initialization of the partitions: \code{"kmeans"} (random k-means,
+default) or \code{"random"} (uniform draws).}
 
 \item{seed}{Optional integer seed for reproducibility.}
 
 \item{verbose}{Print the ICL of each initialization?}
 }
 \value{
-An object of class `"coclust_ordinal"`, a list with
+An object of class \code{"coclust_ordinal"}, a list with
 \describe{
-  \item{row_prob}{n x K matrix of row membership probabilities.}
-  \item{col_prob}{d x L matrix of column membership probabilities.}
-  \item{row_clusters}{Row assignments (integers in `1:K`).}
-  \item{col_clusters}{Column assignments (integers in `1:L`).}
-  \item{icl}{ICL value of the returned solution.}
-  \item{loglik}{Complete-data log-likelihood at the returned solution.}
-  \item{params}{List with `alpha` (length K), `beta` (length L), and the
-    K x L matrices `pi` and `xi`.}
-  \item{all_icl}{ICL of each of the `n_init` initializations.}
-  \item{K, L, m, n, d}{Dimensions of the model and of the data.}
+\item{row_prob}{n x K matrix of row membership probabilities.}
+\item{col_prob}{d x L matrix of column membership probabilities.}
+\item{row_clusters}{Row assignments (integers in \code{1:K}).}
+\item{col_clusters}{Column assignments (integers in \code{1:L}).}
+\item{icl}{ICL value of the returned solution.}
+\item{loglik}{Complete-data log-likelihood at the returned solution.}
+\item{params}{List with \code{alpha} (length K), \code{beta} (length L), and the
+K x L matrices \code{pi} and \code{xi}.}
+\item{all_icl}{ICL of each of the \code{n_init} initializations.}
+\item{K, L, m, n, d}{Dimensions of the model and of the data.}
 }
 }
 \description{
-Fits a latent block model (LBM) whose \eqn{K \times L} blocks follow a CUB
+Fits a latent block model (LBM) whose \eqn{K \times L}{K x L} blocks follow a CUB
 (Combination of Uniform and shifted Binomial) distribution. Inference is
-done by a SEM-Gibbs algorithm. The algorithm is run `n_init` times from
+done by a SEM-Gibbs algorithm. The algorithm is run \code{n_init} times from
 random initializations and the solution with the best ICL is returned.
 }
 \section{Model}{
 
-Rows are partitioned into `K` clusters (proportions `alpha`) and columns
-into `L` clusters (proportions `beta`). Given the partitions, the cells of
-block \eqn{(k,\ell)} are i.i.d. CUB:
+Rows are partitioned into \code{K} clusters (proportions \code{alpha}) and columns
+into \code{L} clusters (proportions \code{beta}). Given the partitions, the cells of
+block \eqn{(k,\ell)}{(k,l)} are i.i.d. CUB:
 \deqn{P(X = r) = \pi_{k\ell} \binom{m-1}{r-1} \xi_{k\ell}^{m-r}
-(1-\xi_{k\ell})^{r-1} + (1-\pi_{k\ell})/m, \quad r = 1, \dots, m.}
-`pi` is the weight of the "feeling" component (1 - `pi` is the weight of
-uncertainty) and `xi` drives the feeling (the larger `xi`, the lower the
+(1-\xi_{k\ell})^{r-1} + (1-\pi_{k\ell})/m, \quad r = 1, \dots, m.}{
+P(X = r) = pi_kl * C(m-1, r-1) * xi_kl^(m-r) * (1-xi_kl)^(r-1)
++ (1-pi_kl)/m,   r = 1, ..., m.}
+\code{pi} is the weight of the "feeling" component (1 - \code{pi} is the weight of
+uncertainty) and \code{xi} drives the feeling (the larger \code{xi}, the lower the
 ordinal values).
 }
 
 \section{Algorithm}{
 
-*SE step*: `n_gibbs` Gibbs sweeps sample the row partition given the
+\emph{SE step}: \code{n_gibbs} Gibbs sweeps sample the row partition given the
 column partition, then the column partition given the row partition.
-*M step*: `alpha` and `beta` are cluster frequencies; `pi` and `xi` of each
+\emph{M step}: \code{alpha} and \code{beta} are cluster frequencies; \code{pi} and \code{xi} of each
 block are obtained by an inner EM on the block's category counts.
-After `burn_in` iterations the sampled parameters are averaged. The
+After \code{burn_in} iterations the sampled parameters are averaged. The
 membership probabilities are then the frequencies of the Gibbs chain
 (run at the averaged parameters) and the final partitions are its mode.
 }
@@ -90,7 +92,11 @@ membership probabilities are then the frequencies of the Gibbs chain
 \section{ICL}{
 
 \deqn{ICL = \log p(x, \hat z, \hat w; \hat\theta) - \frac{K-1}{2}\log n -
-\frac{L-1}{2}\log d - \frac{2KL}{2}\log(nd).}
+\frac{L-1}{2}\log d - KL\log(nd).}{
+ICL = log p(x, z_hat, w_hat; theta_hat) - (K-1)/2 log(n)
+- (L-1)/2 log(d) - K*L log(n*d).}
+Each of the \eqn{KL}{K*L} blocks has 2 free parameters (\code{pi} and \code{xi})
+and its penalty uses the \eqn{nd}{n*d} cells.
 The larger, the better.
 }
 

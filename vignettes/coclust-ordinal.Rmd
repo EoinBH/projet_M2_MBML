@@ -8,42 +8,298 @@ vignette: >
 ---
 
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>",
+                      fig.width = 6.5, fig.height = 4, fig.align = "center")
 library(coclustOrdinal)
 ```
 
-## Model
+## Introduction
 
-(TODO) CUB distribution, latent block model, SEM-Gibbs, ICL.
+Ordinal data, such as answers to a questionnaire on a scale from
+"strongly disagree" to "strongly agree", are often collected as a matrix:
+$n$ individuals (rows) answer $d$ questions (columns). *Co-clustering*
+groups the rows and the columns at the same time, so that the matrix splits
+into homogeneous **blocks**: a group of individuals who answer a group of
+questions in a similar way.
 
-## Simulated data
+`coclustOrdinal` fits the **latent block model** (LBM) in which every block
+follows a **CUB distribution**, a simple model for ordinal answers. The
+parameters are estimated with a **SEM-Gibbs** algorithm, and the numbers of
+row and column clusters are chosen with the **ICL** criterion. The package
+has three functions:
 
-```{r simulate}
-sim <- simulate_cub_lbm(n = 80, d = 40, m = 5, seed = 1)
-dim(sim$X)
+| Function | Purpose |
+|---|---|
+| `coclust_ordinal()` | fit the model for given numbers of clusters $K$ and $L$ |
+| `coclust_ordinal_select()` | fit a grid of $(K, L)$ and pick the best by ICL |
+| `simulate_cub_lbm()` | simulate data from the model (to test the method) |
+
+## Quick start
+
+```{r quick}
+sim <- simulate_cub_lbm(n = 100, d = 50, m = 5, seed = 1)
+fit <- coclust_ordinal(sim$X, K = 2, L = 2, seed = 1)
+fit
 ```
 
-## Fitting the model
+The data are an $n \times d$ matrix of integers $1, \dots, m$. By default
+the algorithm is run from 20 random initializations and the solution with
+the best ICL is returned. The rest of this vignette explains the model and
+the outputs on a harder example.
 
-```{r fit}
-fit <- coclust_ordinal(sim$X, K = 2, L = 2, n_init = 5,
-                       n_iter = 50, burn_in = 20, seed = 1)
+## The model
+
+### The CUB distribution
+
+An ordinal answer $R \in \{1, \dots, m\}$ follows a CUB distribution
+(*Combination of a Uniform and a shifted Binomial*) with parameters
+$\pi \in (0, 1]$ and $\xi \in [0, 1]$ if
+
+$$
+P(R = r) \;=\; \pi \binom{m-1}{r-1} \xi^{m-r} (1-\xi)^{r-1}
+\;+\; (1-\pi)\,\frac{1}{m}, \qquad r = 1, \dots, m.
+$$
+
+It mixes two behaviours:
+
+* **feeling** (weight $\pi$): $R - 1$ follows a binomial
+  $\text{Bin}(m-1,\, 1-\xi)$; small $\xi$ gives high answers and large
+  $\xi$ gives low answers;
+* **uncertainty** (weight $1-\pi$): the answer is drawn uniformly at random.
+
+```{r cub-shapes, fig.height = 3.2}
+dcub <- function(m, pi, xi) {
+  r <- 1:m
+  pi * choose(m - 1, r - 1) * xi^(m - r) * (1 - xi)^(r - 1) + (1 - pi) / m
+}
+op <- par(mfrow = c(1, 3), mar = c(4, 4, 3, 1))
+barplot(dcub(7, 0.9, 0.2), names.arg = 1:7, ylim = c(0, 0.45),
+        main = "pi = 0.9, xi = 0.2", xlab = "answer", ylab = "probability")
+barplot(dcub(7, 0.9, 0.8), names.arg = 1:7, ylim = c(0, 0.45),
+        main = "pi = 0.9, xi = 0.8", xlab = "answer")
+barplot(dcub(7, 0.3, 0.8), names.arg = 1:7, ylim = c(0, 0.45),
+        main = "pi = 0.3, xi = 0.8", xlab = "answer")
+par(op)
+```
+
+Each block only needs two parameters, which keeps the model small even
+when $m$ is large.
+
+### The latent block model
+
+Let $x = (x_{ih})$ be the $n \times d$ data matrix. Each row $i$ has a
+hidden row cluster $z_i \in \{1, \dots, K\}$ and each column $h$ a hidden
+column cluster $w_h \in \{1, \dots, L\}$, drawn independently:
+
+$$
+z_i \sim \text{Mult}(\alpha_1, \dots, \alpha_K), \qquad
+w_h \sim \text{Mult}(\beta_1, \dots, \beta_L).
+$$
+
+Given the clusters, the cells are independent and a cell in block $(k, \ell)$
+follows the CUB distribution of that block:
+
+$$
+x_{ih} \mid z_i = k,\, w_h = \ell \;\sim\; \text{CUB}(\pi_{k\ell}, \xi_{k\ell}).
+$$
+
+The parameters are $\theta = (\alpha, \beta, \pi, \xi)$, where $\pi$ and $\xi$
+are $K \times L$ matrices. Writing $p(\cdot\,; \pi, \xi)$ for the CUB
+probability, the **complete-data log-likelihood** (data and clusters
+together) is simple:
+
+$$
+\log p(x, z, w; \theta) = \sum_{k} n_k \log \alpha_k + \sum_{\ell} d_\ell \log \beta_\ell
++ \sum_{k, \ell} \sum_{r=1}^{m} N_{k\ell r} \log p(r; \pi_{k\ell}, \xi_{k\ell}),
+$$
+
+where $n_k$ and $d_\ell$ are the cluster sizes and $N_{k\ell r}$ is the
+number of cells equal to $r$ in block $(k, \ell)$. The likelihood of the data
+alone, however, sums over all $K^n L^d$ possible partitions and cannot be
+computed. This is why the usual EM algorithm cannot be used directly, and a
+stochastic version is used instead.
+
+## Estimation: the SEM-Gibbs algorithm
+
+Starting from initial partitions (k-means on the rows and on the columns),
+each iteration does:
+
+1. **SE step** (stochastic E step). Instead of computing the posterior of
+   $(z, w)$, one partition is *sampled* by Gibbs sampling. Each row label is
+   drawn given the column labels,
+   $$
+   P(z_i = k \mid w, x; \theta) \;\propto\; \alpha_k \prod_{h=1}^{d}
+   p(x_{ih}; \pi_{k w_h}, \xi_{k w_h}),
+   $$
+   then each column label is drawn given the new row labels in the same way.
+2. **M step**. With $(z, w)$ fixed, $\alpha_k = n_k / n$ and
+   $\beta_\ell = d_\ell / d$. In each block, $(\pi_{k\ell}, \xi_{k\ell})$ is
+   estimated from the counts $N_{k\ell 1}, \dots, N_{k\ell m}$ by a small
+   EM algorithm for the CUB mixture (has the answer come from the feeling
+   or from the uncertainty component?).
+
+The sequence of parameters is a Markov chain that does not converge to a
+single value but fluctuates around the estimate. The first `burn_in`
+iterations are therefore discarded and the estimate $\hat\theta$ is the
+**mean of the remaining iterations**. Finally, the Gibbs sampler is run
+again with $\theta$ fixed at $\hat\theta$:
+
+* the **membership probabilities** (`row_prob`, `col_prob`) are the
+  proportions of iterations in which each row (column) was in each cluster;
+* the **partitions** (`row_clusters`, `col_clusters`) take, for each row
+  and column, the most frequent cluster.
+
+The result depends on the starting point, so the whole procedure is
+repeated `n_init` times (20 by default) and the run with the highest ICL is
+kept.
+
+## Choosing $K$ and $L$: the ICL criterion
+
+The *integrated completed likelihood* penalises the complete-data
+log-likelihood at the estimated partitions $(\hat z, \hat w)$ by the number
+of parameters:
+
+$$
+\text{ICL} = \log p(x, \hat z, \hat w; \hat\theta)
+- \frac{K-1}{2} \log n - \frac{L-1}{2} \log d - KL \log(nd).
+$$
+
+The $K-1$ free row proportions are paid for with $\log n$ (one row label
+per row), the $L-1$ column proportions with $\log d$, and the $2KL$ block
+parameters with $\log(nd)$ (one cell per observation). **The larger the
+ICL, the better.** It also favours well separated clusters, because it is
+built on the complete-data likelihood.
+
+## A harder example
+
+We simulate 150 respondents and 40 questions on a 7-point scale, with three
+row clusters of unequal sizes (50 %, 30 %, 20 %) and two column clusters.
+The blocks overlap more than in the quick start: some blocks have a lot of
+uncertainty ($\pi = 0.6$) and some have a central feeling ($\xi = 0.5$).
+
+```{r sim-hard}
+pi_true <- matrix(c(0.8, 0.6, 0.7,
+                    0.7, 0.8, 0.6), nrow = 3, ncol = 2)
+xi_true <- matrix(c(0.3, 0.7, 0.5,
+                    0.7, 0.4, 0.2), nrow = 3, ncol = 2)
+sim <- simulate_cub_lbm(n = 150, d = 40, m = 7,
+                        alpha = c(0.5, 0.3, 0.2), beta = c(0.6, 0.4),
+                        pi = pi_true, xi = xi_true, seed = 3)
+X <- sim$X
+X[1:5, 1:10]
+```
+
+In the raw matrix, rows and columns are in random order and no structure is
+visible (colours go from dark purple for answer 1 to yellow for answer 7):
+
+```{r heat-raw, fig.height = 3.6}
+plot_ordinal <- function(X, main = "", row_breaks = NULL, col_breaks = NULL) {
+  m <- max(X)
+  image(1:ncol(X), 1:nrow(X), t(X[nrow(X):1, ]), col = hcl.colors(m, "viridis"),
+        xlab = "columns (questions)", ylab = "rows (respondents)",
+        main = main, axes = FALSE)
+  abline(h = nrow(X) - row_breaks + 0.5, v = col_breaks + 0.5,
+         col = "white", lwd = 2)
+}
+plot_ordinal(X, main = "Raw data")
+```
+
+### Fitting the model
+
+```{r fit-hard}
+fit <- coclust_ordinal(X, K = 3, L = 2, seed = 1)
 summary(fit)
 ```
+
+Cluster numbers are arbitrary (*label switching*): estimated cluster 1 can
+correspond to true cluster 2. The partitions are therefore compared with
+contingency tables or with the adjusted Rand index (ARI, equal to 1 for
+identical partitions):
 
 ```{r compare}
 table(estimated = fit$row_clusters, true = sim$z)
 table(estimated = fit$col_clusters, true = sim$w)
+if (requireNamespace("mclust", quietly = TRUE)) {
+  c(rows = mclust::adjustedRandIndex(fit$row_clusters, sim$z),
+    columns = mclust::adjustedRandIndex(fit$col_clusters, sim$w))
+}
 ```
 
-## Choosing the number of blocks with ICL
+To compare the parameters, we first match the estimated clusters to the
+true ones:
+
+```{r params}
+row_match <- apply(table(fit$row_clusters, sim$z), 2, which.max)
+col_match <- apply(table(fit$col_clusters, sim$w), 2, which.max)
+round(fit$params$pi[row_match, col_match], 2)   # true: pi_true
+round(fit$params$xi[row_match, col_match], 2)   # true: xi_true
+```
+
+$\xi$ is recovered very accurately. $\pi$ is harder to estimate: in a block
+with a central feeling, a uniform answer and a binomial answer look alike,
+so the split between the two components is less certain.
+
+### Visualising the blocks
+
+Sorting the rows and columns by their clusters reveals the block structure:
+
+```{r heat-sorted, fig.height = 3.6}
+ro <- order(fit$row_clusters)
+co <- order(fit$col_clusters)
+plot_ordinal(X[ro, co], main = "Data sorted by estimated clusters",
+             row_breaks = cumsum(table(fit$row_clusters))[-fit$K],
+             col_breaks = cumsum(table(fit$col_clusters))[-fit$L])
+```
+
+### Membership probabilities
+
+`row_prob` gives, for every row, the probability of belonging to each row
+cluster. Most rows are classified with certainty; the few uncertain ones
+lie between two clusters:
+
+```{r probs}
+round(head(fit$row_prob), 2)
+max_prob <- apply(fit$row_prob, 1, max)
+summary(max_prob)
+round(fit$row_prob[max_prob < 0.9, , drop = FALSE], 2)
+```
+
+### Selecting the number of clusters
+
+In practice $K$ and $L$ are unknown. `coclust_ordinal_select()` fits every
+pair of a grid and ranks them by ICL. To keep the vignette fast we use
+fewer initializations than the default here.
 
 ```{r select}
-sel <- coclust_ordinal_select(sim$X, K_range = 1:3, L_range = 1:3,
-                              n_init = 3, n_iter = 40, burn_in = 15, seed = 1)
-sel$table
+sel <- coclust_ordinal_select(X, K_range = 1:4, L_range = 1:3,
+                              n_init = 3, seed = 1)
+sel$table[order(-sel$table$icl), ][1:5, ]
 ```
 
-## Real data
+```{r icl-grid, fig.height = 3.4}
+icl_mat <- xtabs(icl ~ K + L, data = sel$table)
+matplot(as.numeric(rownames(icl_mat)), icl_mat, type = "b", pch = 19,
+        lty = 1, col = 1:3, xlab = "K (row clusters)", ylab = "ICL",
+        main = "ICL for each (K, L)", xaxt = "n")
+axis(1, at = as.numeric(rownames(icl_mat)))
+legend("bottomright", legend = paste("L =", colnames(icl_mat)),
+       col = 1:3, pch = 19, lty = 1, bty = "n")
+```
 
-(TODO) Example on a real ordinal data set.
+ICL selects $K = `r sel$best$K`$ and $L = `r sel$best$L`$, the true
+numbers of clusters. The best fit is returned in `sel$best`.
+
+## Practical advice
+
+* **Initializations.** Keep the default `n_init = 20` for real analyses;
+  the run with the best ICL is returned and `fit$all_icl` shows how much
+  the runs differ. If they differ a lot, increase `n_init`.
+* **Iterations.** `n_iter = 100` with `burn_in = 40` is enough on these
+  examples. Increase both if the estimates change between runs with
+  different seeds.
+* **Reproducibility.** Set `seed` to get identical results.
+* **Coding of the data.** Answers must be integers $1, \dots, m$ with the
+  same $m$ for every column and no missing values.
+* **Speed.** The algorithm is written in pure R with matrix operations;
+  the $150 \times 40$ example above takes a few seconds for 20
+  initializations.
