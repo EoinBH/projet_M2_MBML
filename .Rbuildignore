@@ -1,0 +1,14 @@
+^\.Rproj\.user$
+^.*\.Rproj$
+^README\.Rmd$
+^cran-comments\.md$
+^\.github$
+^archive$
+^Notes$
+^Exploring MCMCpack$
+^MBL-Projet-2027\.pdf$
+^src$
+\.DS_Store$
+^context\.txt$
+^\.gitignore$
+^.*\.tar\.gz$

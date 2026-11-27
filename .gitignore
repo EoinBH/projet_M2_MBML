@@ -1,0 +1,13 @@
+.Rhistory
+.RData
+.Rproj.user/
+.Rproj
+*.tar.gz
+*.Rcheck/
+Notes/*.aux
+Notes/*.log
+Notes/*.out
+Notes/*.toc
+Notes/*.gz
+.DS_Store
+context.txt
